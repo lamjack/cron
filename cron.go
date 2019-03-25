@@ -17,15 +17,19 @@ import (
 	"github.com/satori/go.uuid"
 	"runtime"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 )
 
 type Cron struct {
 	entries  []*Entry
-	stop     chan struct{}
 	add      chan *Entry
+	stop     chan struct{}
+	delete   chan string
 	running  bool
 	location *time.Location
+	mutex    sync.Mutex
 }
 
 // Start 开始定时器,如果定时器未开启,则开启一个协程运行定时器,否则什么都不做
@@ -65,6 +69,14 @@ func (c *Cron) AddJob(spec string, cmd Job) ([]byte, error) {
 		return nil, err
 	}
 	return []byte(c.Schedule(schedule, cmd)), nil
+}
+
+// DeleteJob 通过传入任务ID删除任务,这个方法是线程安全
+func (c *Cron) DeleteJob(id string) {
+	if !c.running {
+		c.deleteEntry(id)
+	}
+	c.delete <- id
 }
 
 func (c *Cron) Schedule(schedule Schedule, cmd Job) string {
@@ -114,6 +126,8 @@ func (c *Cron) run() {
 				now = c.now()
 				newEntry.Next = newEntry.Schedule.Next(now)
 				c.entries = append(c.entries, newEntry)
+			case deleteID := <-c.delete:
+				c.deleteEntry(deleteID)
 			case <-c.stop:
 				timer.Stop()
 				return
@@ -122,10 +136,20 @@ func (c *Cron) run() {
 	}
 }
 
+func (c *Cron) deleteEntry(id string) {
+	newEntries := make([]*Entry, 0)
+	for _, entry := range c.entries {
+		if strings.Compare(entry.ID, id) != 0 {
+			newEntries = append(newEntries, entry)
+		}
+	}
+	c.entries = newEntries
+}
+
 func (c Cron) runWithRecovery(job Job) {
 	defer func() {
 		if r := recover(); r != nil {
-			const size = 64 << 10
+			const size = 64 << 10 // 分配一个足够大的存储获取之后截断
 			buf := make([]byte, size)
 			buf = buf[:runtime.Stack(buf, false)]
 		}
@@ -145,6 +169,11 @@ func New() *Cron {
 // NewWithLocation 返回以指定时区为基准的定时器
 func NewWithLocation(location *time.Location) *Cron {
 	return &Cron{
+		entries:  make([]*Entry, 0),
+		add:      make(chan *Entry),
+		stop:     make(chan struct{}),
+		delete:   make(chan string),
+		running:  false,
 		location: location,
 	}
 }
