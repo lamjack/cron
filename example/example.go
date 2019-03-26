@@ -14,8 +14,8 @@
 package main
 
 import (
-	"cron"
 	"fmt"
+	"github.com/lamjack/cron"
 	"time"
 )
 
