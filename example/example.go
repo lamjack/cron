@@ -13,8 +13,28 @@
 // under the License.
 package main
 
-import "cron"
+import (
+	"cron"
+	"fmt"
+	"time"
+)
 
 func main() {
 	c := cron.New()
+	c.AddFunc("* * * * * *", func() {
+		fmt.Println(time.Now().Format("15:04:05"), "每秒跑一次")
+	})
+	c.Start()
+
+	// 5秒后动态添加一个计划任务,2秒跑一次
+	time.Sleep(5 * time.Second)
+	id, _ := c.AddFunc("*/2 * * * * *", func() {
+		fmt.Println(time.Now().Format("15:04:05"), "2秒跑一次")
+	})
+
+	// 10秒后 删除新添加的任务
+	time.Sleep(10 * time.Second)
+	c.DeleteJob(string(id))
+
+	select {}
 }

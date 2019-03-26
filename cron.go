@@ -88,8 +88,9 @@ func (c *Cron) Schedule(schedule Schedule, cmd Job) string {
 	}
 	if !c.running {
 		c.entries = append(c.entries, entry)
+	} else {
+		c.add <- entry
 	}
-	c.add <- entry
 	return id
 }
 
@@ -121,17 +122,22 @@ func (c *Cron) run() {
 					e.Prev = e.Next
 					e.Next = e.Schedule.Next(now)
 				}
+
 			case newEntry := <-c.add:
 				timer.Stop()
 				now = c.now()
 				newEntry.Next = newEntry.Schedule.Next(now)
 				c.entries = append(c.entries, newEntry)
+
 			case deleteID := <-c.delete:
 				c.deleteEntry(deleteID)
+
 			case <-c.stop:
 				timer.Stop()
 				return
 			}
+
+			break
 		}
 	}
 }
