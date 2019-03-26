@@ -27,6 +27,7 @@ type Cron struct {
 	add      chan *Entry
 	stop     chan struct{}
 	delete   chan string
+	snapshot chan []*Entry
 	running  bool
 	location *time.Location
 	mutex    sync.Mutex
@@ -77,6 +78,15 @@ func (c *Cron) DeleteJob(id string) {
 		c.deleteEntry(id)
 	}
 	c.delete <- id
+}
+
+func (c *Cron) Entries() []*Entry {
+	if c.running {
+		c.snapshot <- nil
+		x := <-c.snapshot
+		return x
+	}
+	return c.entrySnapshot()
 }
 
 func (c *Cron) Schedule(schedule Schedule, cmd Job) string {
@@ -132,6 +142,9 @@ func (c *Cron) run() {
 			case deleteID := <-c.delete:
 				c.deleteEntry(deleteID)
 
+			case <-c.snapshot:
+				c.snapshot <- c.entrySnapshot()
+
 			case <-c.stop:
 				timer.Stop()
 				return
@@ -161,6 +174,20 @@ func (c Cron) runWithRecovery(job Job) {
 		}
 	}()
 	job.Run()
+}
+
+func (c *Cron) entrySnapshot() []*Entry {
+	entries := make([]*Entry, 0, len(c.entries))
+	for _, e := range c.entries {
+		entries = append(entries, &Entry{
+			ID:       e.ID,
+			Schedule: e.Schedule,
+			Next:     e.Next,
+			Prev:     e.Prev,
+			Job:      e.Job,
+		})
+	}
+	return entries
 }
 
 func (c Cron) now() time.Time {
